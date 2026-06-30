@@ -6,11 +6,13 @@ from pathlib import Path
 
 from . import __version__
 from .backup import plan_as_json, run_backup
+from .doctor import check_environment, format_checks
 from .models import BackupOptions, RestoreOptions
 from .paths import default_destination_root, default_user_profile, path_from_cli
 from .planner import build_plan
 from .reports import browser_profile_rows, powershell_history_rows
 from .restore import restore_backup
+from .validate import validate_backup
 
 
 def split_values(values: list[str] | None) -> set[str]:
@@ -187,6 +189,27 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return 1 if failures and args.fail_on_copy_error else 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    result = validate_backup(args.backup_root)
+    if args.json:
+        print(result.to_json())
+    else:
+        status = "OK" if result.ok else "FAILED"
+        print(
+            f"[{status}] checked={result.checked} missing={result.missing} "
+            f"failed_status={result.failed_status}"
+        )
+        for problem in result.problems:
+            print(f"  - {problem}")
+    return 0 if result.ok else 1
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    checks = check_environment(args.destination_root)
+    print(format_checks(checks))
+    return 0 if all(check.ok for check in checks if check.name in {"python", "user-profile"}) else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="winback",
@@ -224,6 +247,21 @@ def build_parser() -> argparse.ArgumentParser:
     restore_parser.add_argument("--target-user-profile", type=path_from_cli)
     restore_parser.add_argument("--fail-on-copy-error", action="store_true")
     restore_parser.set_defaults(func=cmd_restore)
+
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate a backup session against its manifest."
+    )
+    validate_parser.add_argument("backup_root", type=path_from_cli)
+    validate_parser.add_argument("--json", action="store_true")
+    validate_parser.set_defaults(func=cmd_validate)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="Check the local environment for backup readiness."
+    )
+    doctor_parser.add_argument(
+        "--destination-root", type=path_from_cli, default=default_destination_root()
+    )
+    doctor_parser.set_defaults(func=cmd_doctor)
 
     return parser
 

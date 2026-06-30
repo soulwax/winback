@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.4.0] - 2026-06-30
+
+Release type: MINOR
+
+- Added `winback doctor` to report Python, platform, profile, destination, robocopy, winget, and Scoop readiness.
+- Added `winback validate` to verify that copied/exported manifest entries still exist in a backup session, with optional JSON output.
+- Cleaned requirements files so runtime installs stay dependency-free and development installs use the declared package extras.
+- Updated README internals documentation to cover check and validate phases.
+
 ## [v0.3.2] - 2026-06-30
 
 Release type: PATCH

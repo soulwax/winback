@@ -4,6 +4,7 @@ from pathlib import Path
 from winback.backup import run_backup
 from winback.models import BackupOptions, RestoreOptions
 from winback.restore import backup_item_path, keep_restore_item, restore_backup
+from winback.validate import validate_backup
 
 
 def test_run_backup_copies_custom_path_and_skips_cache(tmp_path):
@@ -93,3 +94,31 @@ def test_restore_backup_dry_run_reads_manifest(tmp_path):
 
     assert failures == 0
     assert str(target_profile / "Documents" / "PowerShell") in messages[0]
+
+
+def test_validate_backup_reports_missing_manifest_paths(tmp_path):
+    backup_root = tmp_path / "Backup"
+    reports = backup_root / "Reports"
+    reports.mkdir(parents=True)
+    manifest_path = reports / "manifest.csv"
+    with manifest_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["category", "name", "destination", "status"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "category": "AppConfig",
+                "name": "Missing",
+                "destination": str(backup_root / "Contents" / "missing"),
+                "status": "Copied",
+            }
+        )
+
+    result = validate_backup(backup_root)
+
+    assert not result.ok
+    assert result.checked == 1
+    assert result.missing == 1
+    assert "Missing" in result.problems[0]

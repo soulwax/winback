@@ -44,3 +44,19 @@ def test_browsers_preset_can_be_narrowed_to_firefox(tmp_path):
 
     assert options.include_categories == {"Browsers"}
     assert options.include_browsers == {"Firefox"}
+
+
+def test_validate_command_parses_json_flag(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(["validate", str(tmp_path / "Backup"), "--json"])
+
+    assert args.command == "validate"
+    assert args.json is True
+
+
+def test_doctor_command_accepts_destination_root(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(["doctor", "--destination-root", str(tmp_path / "Backup")])
+
+    assert args.command == "doctor"
+    assert args.destination_root == tmp_path / "Backup"

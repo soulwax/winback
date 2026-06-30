@@ -42,6 +42,12 @@ Inspect detected browser profiles and PowerShell history:
 winback inspect --show-plan
 ```
 
+Check whether the local environment is ready:
+
+```powershell
+winback doctor
+```
+
 Run a normal backup:
 
 ```powershell
@@ -60,9 +66,29 @@ Restore from a backup session:
 winback restore F:\Backup\WinBack_2026-06-30_053100
 ```
 
+Validate a backup session:
+
+```powershell
+winback validate F:\Backup\WinBack_2026-06-30_053100
+```
+
 ## How It Works
 
-`winback` is built around four steps: plan, copy, report, and restore.
+`winback` is built around six steps: check, plan, copy, report, validate, and restore.
+
+### 0. Check
+
+`winback doctor` reports local readiness:
+
+- Python version and executable.
+- Windows/platform detection.
+- `winback` version.
+- User profile path.
+- Destination parent path.
+- Optional external tools such as `robocopy`, `winget`, and Scoop.
+
+Missing inventory tools are warnings, not fatal errors. Missing Python/runtime basics are
+treated as real failures.
 
 ### 1. Plan
 
@@ -145,6 +171,12 @@ when `--target-user-profile` is used.
 Before restoring app data, close browsers, editors, terminals, sync clients, password
 managers, and chat apps.
 
+### 5. Validate
+
+`winback validate <backup-root>` reads `Reports\manifest.csv` and verifies that every
+item with a successful copy/export status still exists in the backup session. It also
+reports manifest rows marked as failed. Use `--json` for machine-readable output.
+
 ## AppData Strategy
 
 AppData is not copied wholesale. `winback` treats it as a whitelist of durable state.
@@ -179,6 +211,8 @@ Main commands:
 - `winback plan`: print planned backup items as JSON.
 - `winback inspect`: inspect browser profiles and PowerShell history.
 - `winback restore <backup-root>`: restore from `Reports\manifest.csv`.
+- `winback validate <backup-root>`: verify copied/exported manifest paths exist.
+- `winback doctor`: check local backup readiness.
 
 Useful backup flags:
 
@@ -218,6 +252,10 @@ Useful restore flags:
 - `--restore-windows-vault`
 - `--target-user-profile PATH`
 - `--fail-on-copy-error`
+
+Useful validate flags:
+
+- `--json`
 
 ## Session Layout
 
@@ -285,11 +323,11 @@ For PyPI trusted publishing:
 ## Future Additions
 
 - [ ] Add encrypted archive output with age or GPG.
-- [ ] Add a `verify` command that checks backup completeness against the manifest.
+- [x] Add a `validate` command that checks backup completeness against the manifest.
 - [ ] Add restore conflict policies: skip, overwrite, rename, and interactive.
 - [ ] Add optional browser-specific restore helpers for Firefox and Chromium profiles.
 - [ ] Add richer Windows known-folder discovery through `SHGetKnownFolderPath`.
 - [ ] Add application plug-in definitions loaded from user config.
 - [ ] Add structured JSON logs for unattended runs.
 - [ ] Add backup size estimation before copy.
-- [ ] Add a `doctor` command for robocopy, permissions, PyPI install, and environment checks.
+- [x] Add a `doctor` command for robocopy, PyPI install, and environment checks.
