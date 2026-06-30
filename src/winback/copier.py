@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import filecmp
 import fnmatch
 import os
 import shutil
@@ -34,8 +35,21 @@ def should_skip_file(name: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatchcase(name.casefold(), pattern.casefold()) for pattern in patterns)
 
 
+def files_are_identical(source: Path, destination: Path) -> bool:
+    if not destination.exists() or not destination.is_file():
+        return False
+    try:
+        if source.stat().st_size != destination.stat().st_size:
+            return False
+        return filecmp.cmp(source, destination, shallow=False)
+    except OSError:
+        return False
+
+
 def copy_file_python(source: Path, destination: Path, dry_run: bool) -> int:
     if dry_run:
+        return 0
+    if files_are_identical(source, destination):
         return 0
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
@@ -63,6 +77,8 @@ def copy_directory_python(item: BackupItem, destination: Path, dry_run: bool) ->
             if source_file.is_symlink():
                 continue
             target_file = destination / relative_root / file_name
+            if files_are_identical(source_file, target_file):
+                continue
             target_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_file, target_file)
     return 0
@@ -85,6 +101,8 @@ def copy_with_robocopy(
         str(destination),
         "/E",
         "/XJ",
+        "/XJD",
+        "/XJF",
         "/COPY:DAT",
         "/DCOPY:DAT",
         "/FFT",

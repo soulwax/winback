@@ -2,7 +2,14 @@ import csv
 from pathlib import Path
 
 from winback.backup import run_backup
+from winback.copier import (
+    copy_directory_python,
+    copy_file_python,
+    copy_with_robocopy,
+    files_are_identical,
+)
 from winback.models import BackupOptions, RestoreOptions
+from winback.planner import existing_item
 from winback.restore import backup_item_path, keep_restore_item, restore_backup
 from winback.validate import validate_backup
 
@@ -35,6 +42,84 @@ def test_run_backup_copies_custom_path_and_skips_cache(tmp_path):
     ) == "important"
     assert not (session.contents / "Custom" / "Source" / "Cache" / "skip.txt").exists()
     assert (session.reports / "manifest.csv").exists()
+
+
+def test_copy_file_python_skips_identical_destination(tmp_path):
+    source = tmp_path / "source.txt"
+    destination = tmp_path / "destination.txt"
+    source.write_text("same", encoding="utf-8")
+    destination.write_text("same", encoding="utf-8")
+    original_mtime = destination.stat().st_mtime_ns
+
+    assert copy_file_python(source, destination, dry_run=False) == 0
+
+    assert destination.read_text(encoding="utf-8") == "same"
+    assert destination.stat().st_mtime_ns == original_mtime
+    assert files_are_identical(source, destination)
+
+
+def test_copy_file_python_overwrites_changed_destination(tmp_path):
+    source = tmp_path / "source.txt"
+    destination = tmp_path / "destination.txt"
+    source.write_text("new", encoding="utf-8")
+    destination.write_text("old", encoding="utf-8")
+
+    assert copy_file_python(source, destination, dry_run=False) == 0
+
+    assert destination.read_text(encoding="utf-8") == "new"
+
+
+def test_copy_directory_python_skips_identical_files(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    destination.mkdir()
+    (source / "same.txt").write_text("same", encoding="utf-8")
+    (destination / "same.txt").write_text("same", encoding="utf-8")
+    (source / "changed.txt").write_text("new", encoding="utf-8")
+    (destination / "changed.txt").write_text("old", encoding="utf-8")
+    same_mtime = (destination / "same.txt").stat().st_mtime_ns
+    item = existing_item("Custom", "Source", source, Path("Custom/Source"))
+    assert item is not None
+
+    assert copy_directory_python(item, destination, dry_run=False) == 0
+
+    assert (destination / "same.txt").stat().st_mtime_ns == same_mtime
+    assert (destination / "changed.txt").read_text(encoding="utf-8") == "new"
+
+
+def test_copy_with_robocopy_uses_fast_safe_non_mirror_flags(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    item = existing_item("Custom", "Source", source, Path("Custom/Source"))
+    assert item is not None
+    captured = {}
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(args, check):
+        captured["args"] = args
+        captured["check"] = check
+        return Completed()
+
+    monkeypatch.setattr("winback.copier.subprocess.run", fake_run)
+
+    assert copy_with_robocopy(item, destination, 16, 1, 1, False, tmp_path / "copy.log") == 0
+
+    command = captured["args"]
+    assert command[0] == "robocopy"
+    assert "/MT:16" in command
+    assert "/XJ" in command
+    assert "/XJD" in command
+    assert "/XJF" in command
+    assert "/COPY:DAT" in command
+    assert "/DCOPY:DAT" in command
+    assert "/MIR" not in command
+    assert "/PURGE" not in command
+    assert "/IS" not in command
+    assert captured["check"] is False
 
 
 def test_backup_item_path_resolves_legacy_absolute_destination(tmp_path):

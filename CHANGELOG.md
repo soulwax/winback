@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.4.1] - 2026-06-30
+
+Release type: PATCH
+
+- Hardened fallback Python copying so byte-identical destination files are skipped instead of overwritten.
+- Added tests proving identical files are not rewritten while changed files still update.
+- Documented the Windows `robocopy` behavior: multithreaded, no mirror/delete mode, junction skipping, and default same-file skipping.
+
 ## [v0.4.0] - 2026-06-30
 
 Release type: MINOR

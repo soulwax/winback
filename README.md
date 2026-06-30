@@ -117,10 +117,18 @@ Presets:
 
 ### 2. Copy
 
-On Windows, `winback` uses `robocopy` by default when available. Otherwise it falls back
-to a standard-library Python copy engine. The copy layer always refuses unsafe
-source/destination layouts where the destination is inside the source or the source is
-inside the destination.
+On Windows, `winback` uses `robocopy` by default when available. `robocopy` is invoked
+with an argument list rather than shell-built command strings, uses multithreaded copying,
+skips junctions, preserves data/attributes/timestamps, retries briefly, and does not use
+mirror/delete mode. `robocopy` skips identical files by default; `winback` does not pass
+flags such as `/IS` that would force same-file overwrites.
+
+If `robocopy` is unavailable, `winback` falls back to a standard-library Python copy
+engine. The fallback compares files before copying and skips byte-identical destination
+files, so reruns avoid unnecessary writes there as well.
+
+The copy layer always refuses unsafe source/destination layouts where the destination is
+inside the source or the source is inside the destination.
 
 Directories are copied without following junctions or symlink loops. Cache-like material
 is excluded where practical:
