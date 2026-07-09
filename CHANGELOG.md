@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.4.2] - 2026-07-01
+
+Release type: PATCH
+
+- Skipped cloud-only placeholder files by default across every backup category and both copy engines, so backups no longer hydrate (download) online-only content.
+- Made placeholder detection provider-agnostic via the Windows `OFFLINE`, `RECALL_ON_OPEN`, and `RECALL_ON_DATA_ACCESS` file attributes, covering OneDrive, Dropbox, Google Drive, and iCloud.
+- Fixed the pure-Python copy engine and OneDrive-redirected known folders (Desktop/Documents), which previously ignored the offline flag and could pull down cloud data.
+- Added tests proving cloud placeholders are skipped while on-disk files are still copied.
+
 ## [v0.4.1] - 2026-06-30
 
 Release type: PATCH

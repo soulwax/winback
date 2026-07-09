@@ -6,7 +6,8 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from .copier import copy_backup_item
+from .copier import FileCopyResult, copy_backup_item, copy_item_incremental
+from .ledger import Ledger
 from .models import BackupItem, BackupOptions, ManifestItem, SessionPaths
 from .paths import safe_name, to_portable
 from .planner import build_plan
@@ -63,6 +64,37 @@ def manifest_row(
     )
 
 
+def file_manifest_row(
+    item: BackupItem,
+    result: FileCopyResult,
+    session: SessionPaths,
+    user_profile: Path,
+) -> ManifestItem:
+    try:
+        relative = result.physical_path.relative_to(session.root)
+    except ValueError:
+        relative = result.physical_path
+    return ManifestItem(
+        time=datetime.now().isoformat(timespec="seconds"),
+        category=item.category,
+        name=result.source.name,
+        item_type="File",
+        source=str(result.source),
+        source_portable=to_portable(result.source, user_profile),
+        destination=str(result.physical_path),
+        destination_relative=str(relative),
+        restore_target=str(result.restore_target),
+        restore_target_portable=to_portable(result.restore_target, user_profile),
+        status=result.status,
+        copy_exit_code=0,
+        notes=(
+            "Linked from a prior backup session."
+            if result.status == "Linked"
+            else "Copied file (incremental)."
+        ),
+    )
+
+
 def item_to_dict(item: BackupItem) -> dict[str, object]:
     return {
         "category": item.category,
@@ -106,41 +138,68 @@ def run_backup(
         session.reports.mkdir(parents=True, exist_ok=True)
         session.robocopy_logs.mkdir(parents=True, exist_ok=True)
 
+    use_incremental = options.incremental and not options.dry_run
+    ledger = None
+    if use_incremental:
+        ledger = Ledger.open(options.destination_root)
+        ingested = ledger.auto_ingest(options.destination_root)
+        if ingested:
+            info(f"[INFO] Incremental: ingested {ingested} files from prior sessions")
+
     manifest: list[ManifestItem] = []
-    for item in items:
-        destination = session.contents / item.relative_destination
-        action = "copy file" if item.is_file else "copy directory"
-        if options.dry_run:
-            info(f"[INFO] DRYRUN {action}: {item.source} -> {destination}")
-            manifest.append(
-                manifest_row(
-                    item, destination, "DryRun", 0, "No files copied.", session, user_profile
+    try:
+        for item in items:
+            destination = session.contents / item.relative_destination
+            action = "copy file" if item.is_file else "copy directory"
+            if options.dry_run:
+                info(f"[INFO] DRYRUN {action}: {item.source} -> {destination}")
+                manifest.append(
+                    manifest_row(
+                        item, destination, "DryRun", 0, "No files copied.", session, user_profile
+                    )
                 )
-            )
-            continue
-        info(f"[INFO] {action}: {item.name}")
-        try:
-            code = copy_backup_item(item, destination, options, session.robocopy_logs)
-            status = "Copied" if code <= 7 else "Failed"
-            notes = (
-                "Copied as a single file."
-                if item.is_file
-                else f"Robocopy/Python copy exit code: {code}."
-            )
-            manifest.append(
-                manifest_row(item, destination, status, code, notes, session, user_profile)
-            )
-            if code > 7:
-                warn(f"[WARN] {item.name} returned copy exit code {code}")
+                continue
+            info(f"[INFO] {action}: {item.name}")
+            try:
+                if use_incremental:
+                    results = copy_item_incremental(
+                        item, destination, ledger, user_profile, session.root.name
+                    )
+                    for result in results:
+                        manifest.append(file_manifest_row(item, result, session, user_profile))
+                    continue
+                code = copy_backup_item(item, destination, options, session.robocopy_logs)
+                status = "Copied" if code <= 7 else "Failed"
+                notes = (
+                    "Copied as a single file."
+                    if item.is_file
+                    else f"Robocopy/Python copy exit code: {code}."
+                )
+                manifest.append(
+                    manifest_row(item, destination, status, code, notes, session, user_profile)
+                )
+                if code > 7:
+                    warn(f"[WARN] {item.name} returned copy exit code {code}")
+                    if options.fail_on_copy_error:
+                        raise RuntimeError(f"{item.name} returned copy exit code {code}")
+            except Exception as exc:
+                manifest.append(
+                    manifest_row(item, destination, "Failed", 99, str(exc), session, user_profile)
+                )
+                warn(f"[WARN] {item.name} failed: {exc}")
                 if options.fail_on_copy_error:
-                    raise RuntimeError(f"{item.name} returned copy exit code {code}")
-        except Exception as exc:
-            manifest.append(
-                manifest_row(item, destination, "Failed", 99, str(exc), session, user_profile)
-            )
-            warn(f"[WARN] {item.name} failed: {exc}")
-            if options.fail_on_copy_error:
-                raise
+                    raise
+    finally:
+        if ledger is not None:
+            ledger.close()
+
+    if use_incremental:
+        linked = [row for row in manifest if row.status == "Linked"]
+        copied = [row for row in manifest if row.status == "Copied"]
+        info(
+            f"[ OK ] Incremental: linked {len(linked)} unchanged files, "
+            f"copied {len(copied)} new/changed"
+        )
 
     if not options.dry_run:
         write_manifest(session.reports, manifest, set(options.manifest_formats))

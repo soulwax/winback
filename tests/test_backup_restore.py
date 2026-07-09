@@ -7,6 +7,7 @@ from winback.copier import (
     copy_file_python,
     copy_with_robocopy,
     files_are_identical,
+    is_cloud_placeholder,
 )
 from winback.models import BackupOptions, RestoreOptions
 from winback.planner import existing_item
@@ -88,6 +89,35 @@ def test_copy_directory_python_skips_identical_files(tmp_path):
     assert (destination / "changed.txt").read_text(encoding="utf-8") == "new"
 
 
+def test_is_cloud_placeholder_false_for_regular_file(tmp_path):
+    regular = tmp_path / "regular.txt"
+    regular.write_text("data", encoding="utf-8")
+
+    assert is_cloud_placeholder(regular) is False
+
+
+def test_copy_directory_python_skips_cloud_placeholder_files(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    (source / "local.txt").write_text("on disk", encoding="utf-8")
+    placeholder = source / "cloud-only.txt"
+    placeholder.write_text("placeholder", encoding="utf-8")
+    item = existing_item("Custom", "Source", source, Path("Custom/Source"))
+    assert item is not None
+    assert item.skip_offline_files
+
+    monkeypatch.setattr(
+        "winback.copier.is_cloud_placeholder",
+        lambda path: Path(path) == placeholder,
+    )
+
+    assert copy_directory_python(item, destination, dry_run=False) == 0
+
+    assert (destination / "local.txt").read_text(encoding="utf-8") == "on disk"
+    assert not (destination / "cloud-only.txt").exists()
+
+
 def test_copy_with_robocopy_uses_fast_safe_non_mirror_flags(tmp_path, monkeypatch):
     source = tmp_path / "source"
     destination = tmp_path / "destination"
@@ -116,6 +146,7 @@ def test_copy_with_robocopy_uses_fast_safe_non_mirror_flags(tmp_path, monkeypatc
     assert "/XJF" in command
     assert "/COPY:DAT" in command
     assert "/DCOPY:DAT" in command
+    assert "/XA:O" in command
     assert "/MIR" not in command
     assert "/PURGE" not in command
     assert "/IS" not in command

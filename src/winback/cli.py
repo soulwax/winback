@@ -7,6 +7,7 @@ from pathlib import Path
 from . import __version__
 from .backup import plan_as_json, run_backup
 from .doctor import check_environment, format_checks
+from .ledger import Ledger
 from .models import BackupOptions, RestoreOptions
 from .paths import default_destination_root, default_user_profile, path_from_cli
 from .planner import build_plan
@@ -45,6 +46,11 @@ def add_common_backup_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--session-name")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Skip files already captured in a prior backup (ledger-based).",
+    )
     parser.add_argument("--copy-engine", choices=("auto", "robocopy", "python"), default="auto")
     parser.add_argument("--threads", type=int, default=32)
     parser.add_argument("--retry-count", type=int, default=1)
@@ -117,6 +123,7 @@ def backup_options(args: argparse.Namespace) -> BackupOptions:
         destination_root=args.destination_root,
         session_name=args.session_name,
         dry_run=args.dry_run,
+        incremental=args.incremental,
         copy_engine=args.copy_engine,
         threads=args.threads,
         retry_count=args.retry_count,
@@ -204,6 +211,23 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_ledger(args: argparse.Namespace) -> int:
+    with Ledger.open(args.destination_root) as ledger:
+        if args.ledger_command == "add":
+            added = ledger.ingest_session(args.path)
+            print(f"[INFO] Ingested {added} files from {args.path}")
+        elif args.ledger_command == "prune":
+            removed = ledger.prune()
+            print(f"[INFO] Pruned {removed} entries with missing physical copies")
+        else:  # list
+            summary = ledger.summary()
+            print(
+                f"files={summary['files']} total_size={summary['total_size']} "
+                f"sessions={summary['sessions']} dangling={summary['dangling']}"
+            )
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     checks = check_environment(args.destination_root)
     print(format_checks(checks))
@@ -262,6 +286,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--destination-root", type=path_from_cli, default=default_destination_root()
     )
     doctor_parser.set_defaults(func=cmd_doctor)
+
+    ledger_parser = subparsers.add_parser(
+        "ledger", help="Inspect and manage the incremental-backup ledger."
+    )
+    ledger_parser.add_argument(
+        "--destination-root", type=path_from_cli, default=default_destination_root()
+    )
+    ledger_subparsers = ledger_parser.add_subparsers(dest="ledger_command", required=True)
+    ledger_add = ledger_subparsers.add_parser(
+        "add", help="Ingest an existing backup session (or folder) into the ledger."
+    )
+    ledger_add.add_argument("path", type=path_from_cli)
+    ledger_subparsers.add_parser("list", help="Show ledger summary counts.")
+    ledger_subparsers.add_parser(
+        "prune", help="Drop ledger entries whose physical copy no longer exists."
+    )
+    ledger_parser.set_defaults(func=cmd_ledger)
 
     return parser
 

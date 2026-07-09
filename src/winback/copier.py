@@ -5,10 +5,11 @@ import fnmatch
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import BackupItem, BackupOptions, RestoreOptions
-from .paths import assert_copy_is_safe, safe_name
+from .paths import assert_copy_is_safe, safe_name, to_portable
 
 
 def robocopy_available() -> bool:
@@ -33,6 +34,28 @@ def should_skip_dir(name_or_path: str, patterns: tuple[str, ...]) -> bool:
 
 def should_skip_file(name: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatchcase(name.casefold(), pattern.casefold()) for pattern in patterns)
+
+
+# Cloud storage providers (OneDrive, Dropbox, Google Drive, iCloud, ...) mark
+# "online-only" placeholder files with one of these Windows file attributes.
+# Reading such a file forces the provider to download (hydrate) it, so a backup
+# would silently pull gigabytes of cloud data. We skip them and keep only the
+# copies that are already materialized on disk.
+_CLOUD_PLACEHOLDER_ATTRS = (
+    0x00001000  # FILE_ATTRIBUTE_OFFLINE
+    | 0x00040000  # FILE_ATTRIBUTE_RECALL_ON_OPEN
+    | 0x00400000  # FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+)
+
+
+def is_cloud_placeholder(path: Path) -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        attributes = os.lstat(path).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attributes & _CLOUD_PLACEHOLDER_ATTRS)
 
 
 def files_are_identical(source: Path, destination: Path) -> bool:
@@ -75,6 +98,8 @@ def copy_directory_python(item: BackupItem, destination: Path, dry_run: bool) ->
                 continue
             source_file = root_path / file_name
             if source_file.is_symlink():
+                continue
+            if item.skip_offline_files and is_cloud_placeholder(source_file):
                 continue
             target_file = destination / relative_root / file_name
             if files_are_identical(source_file, target_file):
@@ -150,6 +175,85 @@ def copy_backup_item(
             log_root / log_name,
         )
     return copy_directory_python(item, destination, options.dry_run)
+
+
+@dataclass
+class FileCopyResult:
+    source: Path  # original source file
+    restore_target: Path  # where this file should be restored
+    physical_path: Path  # where the bytes live (this session, or a prior one when linked)
+    status: str  # "Copied" | "Linked"
+    size: int
+    mtime_ns: int
+
+
+def _iter_directory_files(item: BackupItem):
+    """Yield (source_file, relative_path) for a directory item, honoring excludes."""
+    for root, dirs, files in os.walk(item.source, followlinks=False):
+        root_path = Path(root)
+        dirs[:] = [
+            directory
+            for directory in dirs
+            if not should_skip_dir(directory, item.exclude_dirs)
+            and not should_skip_dir(str(root_path / directory), item.exclude_dirs)
+        ]
+        relative_root = root_path.relative_to(item.source)
+        for file_name in files:
+            if should_skip_file(file_name, item.exclude_files):
+                continue
+            source_file = root_path / file_name
+            if source_file.is_symlink():
+                continue
+            if item.skip_offline_files and is_cloud_placeholder(source_file):
+                continue
+            yield source_file, relative_root / file_name
+
+
+def copy_item_incremental(
+    item: BackupItem,
+    destination: Path,
+    ledger,
+    user_profile: Path,
+    session_name: str,
+) -> list[FileCopyResult]:
+    """Copy only files not already in the ledger; link the rest to their prior copy.
+
+    Enumerates files itself (robocopy cannot consult the ledger). Unchanged files are
+    only ``stat()``-ed, so the expensive work is limited to genuinely new/changed data.
+    """
+    source_root = item.source.parent if item.is_file else item.source
+    assert_copy_is_safe(source_root, destination)
+    restore_root = item.restore_target or item.source
+
+    if item.is_file:
+        pairs = [(item.source, destination, restore_root)]
+    else:
+        pairs = [
+            (source_file, destination / relative, restore_root / relative)
+            for source_file, relative in _iter_directory_files(item)
+        ]
+
+    results: list[FileCopyResult] = []
+    for source_file, physical_dest, restore_target in pairs:
+        try:
+            stat = source_file.stat()
+        except OSError:
+            continue
+        size, mtime_ns = stat.st_size, stat.st_mtime_ns
+        portable = to_portable(source_file, user_profile)
+        prior = ledger.unchanged_physical(portable, size, mtime_ns)
+        if prior is not None:
+            results.append(
+                FileCopyResult(source_file, restore_target, Path(prior), "Linked", size, mtime_ns)
+            )
+            continue
+        physical_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, physical_dest)
+        ledger.record_file(portable, size, mtime_ns, str(physical_dest), session_name)
+        results.append(
+            FileCopyResult(source_file, restore_target, physical_dest, "Copied", size, mtime_ns)
+        )
+    return results
 
 
 def copy_restore_directory(

@@ -99,7 +99,7 @@ are ignored, so the plan naturally adapts to each machine.
 Default high-value areas:
 
 - `UserFolders`: Desktop, Documents, Downloads, Pictures, Videos, Music, Favorites.
-- `CloudLocal`: local OneDrive roots, with cloud-only files skipped by robocopy on Windows.
+- `CloudLocal`: local OneDrive roots, with cloud-only placeholder files skipped (see below).
 - `Browsers`: Firefox, Thunderbird, Chrome, Edge, Brave, Vivaldi, Opera.
 - `AppConfig`: editor, terminal, PowerShell, developer, AI tool, and selected app state.
 - `PackageManagers`: Scoop persistence/buckets/config and Chocolatey config.
@@ -126,6 +126,14 @@ flags such as `/IS` that would force same-file overwrites.
 If `robocopy` is unavailable, `winback` falls back to a standard-library Python copy
 engine. The fallback compares files before copying and skips byte-identical destination
 files, so reruns avoid unnecessary writes there as well.
+
+Both engines skip cloud-only placeholder files by default, in every category. A backup
+only copies data that is already materialized on disk; it never downloads (hydrates)
+online-only files. This is provider-agnostic: OneDrive, Dropbox, Google Drive, and iCloud
+placeholders are detected through the Windows `OFFLINE`, `RECALL_ON_OPEN`, and
+`RECALL_ON_DATA_ACCESS` file attributes (robocopy via `/XA:O`, the Python engine via a
+matching attribute check). This also protects Desktop/Documents folders that OneDrive
+has redirected into its own tree.
 
 The copy layer always refuses unsafe source/destination layouts where the destination is
 inside the source or the source is inside the destination.

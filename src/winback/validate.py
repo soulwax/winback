@@ -36,14 +36,17 @@ def validate_backup(backup_root: Path) -> ValidationResult:
             failed_status += 1
             problems.append(f"{name}: manifest status is {status}")
             continue
-        if status not in {"Copied", "Exported"}:
+        if status not in {"Copied", "Exported", "Linked"}:
             continue
         checked += 1
         destination = row.get("destination") or row.get("Destination") or ""
         path = backup_item_path(backup_root, destination)
         if not path.exists():
             missing += 1
-            problems.append(f"{name}: missing backup path {path}")
+            if status == "Linked":
+                problems.append(f"{name}: missing linked source from prior session {path}")
+            else:
+                problems.append(f"{name}: missing backup path {path}")
 
     return ValidationResult(
         checked=checked,

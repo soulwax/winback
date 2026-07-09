@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -m black --check src tests 2>&1; python -m pylint src/winback tests 2>&1 | Select-Object -Last 15; python -m pytest 2>&1 | Select-Object -Last 20)",
+      "PowerShell($py = \".\\\\.venv\\\\Scripts\\\\python.exe\"; if \\(-not \\(Test-Path $py\\)\\) { $py = \"py\" }; & $py -m black --check src tests 2>&1; \"----PYLINT----\"; & $py -m pylint src/winback tests 2>&1 | Select-Object -Last 12; \"----PYTEST----\"; & $py -m pytest 2>&1 | Select-Object -Last 20)",
+      "PowerShell($py = \".\\\\.venv\\\\Scripts\\\\python.exe\"; & $py -m pylint -j1 src/winback tests 2>&1 | Select-Object -Last 15)",
+      "PowerShell($py = \".\\\\.venv\\\\Scripts\\\\python.exe\"; & $py -m pytest tests/test_ledger.py -q 2>&1 | Select-Object -Last 30)",
+      "PowerShell($py = \".\\\\.venv\\\\Scripts\\\\python.exe\"; & $py -m black --check src tests 2>&1; \"----PYLINT----\"; & $py -m pylint -j1 src/winback tests 2>&1 | Select-Object -Last 15; \"----PYTEST----\"; & $py -m pytest 2>&1 | Select-Object -Last 15)"
+    ]
+  }
+}

@@ -60,3 +60,30 @@ def test_doctor_command_accepts_destination_root(tmp_path):
 
     assert args.command == "doctor"
     assert args.destination_root == tmp_path / "Backup"
+
+
+def test_incremental_flag_sets_backup_option(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "backup",
+            "--incremental",
+            "--user-profile",
+            str(tmp_path / "User"),
+            "--destination-root",
+            str(tmp_path / "Backup"),
+        ]
+    )
+
+    assert backup_options(args).incremental is True
+
+
+def test_ledger_add_command_parses_path(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(
+        ["ledger", "--destination-root", str(tmp_path / "Backup"), "add", str(tmp_path / "Old")]
+    )
+
+    assert args.command == "ledger"
+    assert args.ledger_command == "add"
+    assert args.path == tmp_path / "Old"

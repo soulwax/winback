@@ -55,7 +55,7 @@ def existing_item(
     restore_target: Path | None = None,
     exclude_dirs: tuple[str, ...] = (),
     exclude_files: tuple[str, ...] = (),
-    skip_offline_files: bool = False,
+    skip_offline_files: bool = True,
 ) -> BackupItem | None:
     resolved = resolve_existing(source)
     if resolved is None:

@@ -17,7 +17,7 @@ class BackupItem:
     restore_target: Path | None = None
     exclude_dirs: tuple[str, ...] = ()
     exclude_files: tuple[str, ...] = ()
-    skip_offline_files: bool = False
+    skip_offline_files: bool = True
 
     @property
     def is_file(self) -> bool:
@@ -47,6 +47,7 @@ class BackupOptions:
     destination_root: Path
     session_name: str | None = None
     dry_run: bool = False
+    incremental: bool = False
     copy_engine: CopyEngine = "auto"
     threads: int = 32
     retry_count: int = 1

@@ -46,7 +46,7 @@ def keep_restore_item(row: dict[str, str], options: RestoreOptions) -> bool:
     if normalized == category_key("WindowsVault") and not options.restore_windows_vault:
         return False
     status = row.get("status") or row.get("Status") or ""
-    return status in {"Copied", "DryRun"}
+    return status in {"Copied", "DryRun", "Linked"}
 
 
 def restore_backup(options: RestoreOptions, info=print, warn=print) -> int:
